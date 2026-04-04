@@ -11,7 +11,6 @@ use x11rb::rust_connection::RustConnection;
 pub struct X11 {
     pub conn: RustConnection,
     pub root: xproto::Window,
-    pub screen_num: usize,
 }
 
 impl X11 {
@@ -20,7 +19,7 @@ impl X11 {
         let (conn, screen_num) =
             RustConnection::connect(None).context("Cannot connect to X11 display. Is DISPLAY set?")?;
         let root = conn.setup().roots[screen_num].root;
-        Ok(Self { conn, root, screen_num })
+        Ok(Self { conn, root })
     }
 
     /// List all GNOME Terminal windows.
