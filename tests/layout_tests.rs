@@ -55,6 +55,17 @@ fn grid_6_makes_2x3() {
 }
 
 #[test]
+fn grid_8_makes_2x4() {
+    let rects = calculate_layout("grid", 0, 0, 1920, 1080, 8).unwrap();
+    assert_eq!(rects.len(), 8);
+    // 2 rows, 4 cols -> each cell 480x540
+    assert_eq!(rects[0], Rect { x: 0, y: 0, width: 480, height: 540 });
+    assert_eq!(rects[3], Rect { x: 1440, y: 0, width: 480, height: 540 });
+    assert_eq!(rects[4], Rect { x: 0, y: 540, width: 480, height: 540 });
+    assert_eq!(rects[7], Rect { x: 1440, y: 540, width: 480, height: 540 });
+}
+
+#[test]
 fn grid_with_monitor_offset() {
     let rects = calculate_layout("grid", 1920, 0, 1920, 1080, 4).unwrap();
     assert_eq!(rects[0], Rect { x: 1920, y: 0, width: 960, height: 540 });
