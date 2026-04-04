@@ -6,6 +6,7 @@ use x11rb::protocol::xproto::{
     ConnectionExt as _, EventMask,
 };
 use x11rb::rust_connection::RustConnection;
+use x11rb::wrapper::ConnectionExt as WrapperConnectionExt;
 
 /// Wrapper around the X11 connection and root window.
 pub struct X11 {
@@ -72,7 +73,7 @@ impl X11 {
     }
 
     /// Read window title (_NET_WM_NAME falling back to WM_NAME).
-    fn get_window_title(&self, window: u32) -> Result<String> {
+    pub fn get_window_title(&self, window: u32) -> Result<String> {
         let net_wm_name = self.conn.intern_atom(false, b"_NET_WM_NAME")?.reply()?.atom;
         let utf8_string = self.conn.intern_atom(false, b"UTF8_STRING")?.reply()?.atom;
 
@@ -178,6 +179,40 @@ impl X11 {
         self.conn.flush()?;
 
         Ok(())
+    }
+
+    /// Set the window title (_NET_WM_NAME and WM_NAME).
+    pub fn set_window_title(&self, window: u32, title: &str) -> Result<()> {
+        let net_wm_name = self.conn.intern_atom(false, b"_NET_WM_NAME")?.reply()?.atom;
+        let utf8_string = self.conn.intern_atom(false, b"UTF8_STRING")?.reply()?.atom;
+
+        self.conn.change_property8(
+            xproto::PropMode::REPLACE,
+            window,
+            net_wm_name,
+            utf8_string,
+            title.as_bytes(),
+        )?;
+
+        self.conn.change_property8(
+            xproto::PropMode::REPLACE,
+            window,
+            AtomEnum::WM_NAME,
+            AtomEnum::STRING,
+            title.as_bytes(),
+        )?;
+
+        self.conn.flush()?;
+        Ok(())
+    }
+
+    /// Check if a window still exists on the X server.
+    pub fn window_exists(&self, window: u32) -> bool {
+        self.conn
+            .get_window_attributes(window)
+            .ok()
+            .and_then(|cookie| cookie.reply().ok())
+            .is_some()
     }
 
     /// Remove _NET_WM_STATE_MAXIMIZED_HORZ and _VERT from a window.

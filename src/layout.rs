@@ -123,7 +123,7 @@ fn grid(
     // Prefer fewer rows (wider cells are better for terminals).
     // For 4: 2x2, for 6: 2x3, for 8: 2x4, for 9: 3x3, for 10: 2x5
     let rows = (count as f64).sqrt().floor().max(1.0) as usize;
-    let cols = (count + rows - 1) / rows;
+    let cols = count.div_ceil(rows);
 
     let cell_w = mon_w / cols as u32;
     let cell_h = mon_h / rows as u32;

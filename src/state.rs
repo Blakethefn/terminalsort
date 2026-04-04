@@ -3,16 +3,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct SavedState {
     pub profiles: HashMap<String, String>,
 }
 
 impl SavedState {
     pub fn new() -> Self {
-        Self {
-            profiles: HashMap::new(),
-        }
+        Self::default()
     }
 }
 

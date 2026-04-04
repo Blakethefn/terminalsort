@@ -36,6 +36,28 @@ enum Commands {
     List,
     /// Restore original font sizes
     Reset,
+    /// Set window titles (with optional pinning to prevent overwriting)
+    Rename {
+        /// Number of windows to click-select (use --id instead to skip clicking)
+        #[arg(long, conflicts_with = "id", required_unless_present = "id")]
+        pick: Option<usize>,
+
+        /// Window ID(s) from 'list' output (e.g. 0x04ef2087)
+        #[arg(long, conflicts_with = "pick", required_unless_present = "pick")]
+        id: Vec<String>,
+
+        /// Title(s) to assign, one per window (in order)
+        #[arg(long, required = true)]
+        title: Vec<String>,
+
+        /// Keep re-applying titles so other programs can't overwrite them
+        #[arg(long)]
+        pin: bool,
+
+        /// Pin re-apply interval in milliseconds (default: 500)
+        #[arg(long, default_value = "500")]
+        interval: u64,
+    },
 }
 
 fn main() -> Result<()> {
@@ -50,6 +72,9 @@ fn main() -> Result<()> {
         }
         Commands::Reset => {
             cmd_reset()?;
+        }
+        Commands::Rename { pick, id, title, pin, interval } => {
+            cmd_rename(pick, &id, &title, pin, interval)?;
         }
     }
 
@@ -145,6 +170,83 @@ fn scale_fonts(window_count: usize) -> Result<()> {
     if new_font != current_font {
         font::set_font(&uuid, &new_font)?;
         eprintln!("Font scaled: {current_font} → {new_font}");
+    }
+
+    Ok(())
+}
+
+fn cmd_rename(
+    pick: Option<usize>,
+    ids: &[String],
+    titles: &[String],
+    pin: bool,
+    interval_ms: u64,
+) -> Result<()> {
+    let x11 = x11::X11::connect()?;
+
+    let windows = if let Some(count) = pick {
+        if titles.len() != count {
+            bail!(
+                "Expected {} title(s) for {} window(s), got {}",
+                count,
+                count,
+                titles.len()
+            );
+        }
+        picker::pick_windows(&x11, count)?
+    } else {
+        if titles.len() != ids.len() {
+            bail!(
+                "Expected {} title(s) for {} window ID(s), got {}",
+                ids.len(),
+                ids.len(),
+                titles.len()
+            );
+        }
+        let mut wins = Vec::new();
+        for id_str in ids {
+            let id_str = id_str.trim_start_matches("0x").trim_start_matches("0X");
+            let wid = u32::from_str_radix(id_str, 16)
+                .map_err(|_| anyhow::anyhow!("Invalid window ID: {}", ids[wins.len()]))?;
+            let title = x11.get_window_title(wid).unwrap_or_default();
+            wins.push(types::TerminalWindow { id: wid, title });
+        }
+        wins
+    };
+
+    // Set titles
+    for (win, title) in windows.iter().zip(titles.iter()) {
+        x11.set_window_title(win.id, title)?;
+        eprintln!(
+            "  Renamed: {} → {}",
+            if win.title.is_empty() {
+                "(untitled)"
+            } else {
+                &win.title
+            },
+            title
+        );
+    }
+
+    if pin {
+        eprintln!("Pinning titles (Ctrl+C to stop)...");
+        let interval = std::time::Duration::from_millis(interval_ms);
+        loop {
+            std::thread::sleep(interval);
+            let mut any_alive = false;
+            for (win, title) in windows.iter().zip(titles.iter()) {
+                if x11.window_exists(win.id) {
+                    let _ = x11.set_window_title(win.id, title);
+                    any_alive = true;
+                }
+            }
+            if !any_alive {
+                eprintln!("All pinned windows closed. Exiting.");
+                break;
+            }
+        }
+    } else {
+        eprintln!("Done! {} window(s) renamed.", windows.len());
     }
 
     Ok(())
