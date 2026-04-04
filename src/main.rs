@@ -75,13 +75,28 @@ fn cmd_tile(pick: &str, layout_name: &str, mon_idx: usize) -> Result<()> {
         picker::pick_windows(&x11, count)?
     };
 
-    // Calculate layout
+    // Clip monitor geometry to workarea (accounts for panels/taskbars)
+    let workarea = x11.get_workarea()?;
+    let mon_x = mon.x as i32;
+    let mon_y = mon.y as i32;
+    let mon_w = mon.width as u32;
+    let mon_h = mon.height as u32;
+
+    // Intersect monitor rect with workarea
+    let eff_x = mon_x.max(workarea.x);
+    let eff_y = mon_y.max(workarea.y);
+    let eff_right = (mon_x + mon_w as i32).min(workarea.x + workarea.width as i32);
+    let eff_bottom = (mon_y + mon_h as i32).min(workarea.y + workarea.height as i32);
+    let eff_w = (eff_right - eff_x).max(0) as u32;
+    let eff_h = (eff_bottom - eff_y).max(0) as u32;
+
+    // Calculate layout using effective (panel-adjusted) geometry
     let rects = layout::calculate_layout(
         layout_name,
-        mon.x as i32,
-        mon.y as i32,
-        mon.width as u32,
-        mon.height as u32,
+        eff_x,
+        eff_y,
+        eff_w,
+        eff_h,
         windows.len(),
     )?;
 

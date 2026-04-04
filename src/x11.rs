@@ -1,4 +1,4 @@
-use crate::types::TerminalWindow;
+use crate::types::{Rect, TerminalWindow};
 use anyhow::{Context, Result};
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
@@ -93,16 +93,86 @@ impl X11 {
         Ok(String::from_utf8_lossy(&reply.value).into_owned())
     }
 
-    /// Move and resize a window to the given position and size.
+    /// Get _NET_WORKAREA from the root window.
+    /// Returns (x, y, width, height) of the first workarea entry.
+    pub fn get_workarea(&self) -> Result<Rect> {
+        let net_workarea = self
+            .conn
+            .intern_atom(false, b"_NET_WORKAREA")?
+            .reply()?
+            .atom;
+
+        let reply = self
+            .conn
+            .get_property(false, self.root, net_workarea, AtomEnum::CARDINAL, 0, 4)?
+            .reply()?;
+
+        let values: Vec<u32> = reply.value32().map(|v| v.collect()).unwrap_or_default();
+
+        if values.len() >= 4 {
+            Ok(Rect {
+                x: values[0] as i32,
+                y: values[1] as i32,
+                width: values[2],
+                height: values[3],
+            })
+        } else {
+            // Fallback: full screen
+            let screen = &self.conn.setup().roots[0];
+            Ok(Rect {
+                x: 0,
+                y: 0,
+                width: screen.width_in_pixels as u32,
+                height: screen.height_in_pixels as u32,
+            })
+        }
+    }
+
+    /// Get _GTK_FRAME_EXTENTS (CSD shadow/border) for a window.
+    /// Returns (left, right, top, bottom) or (0,0,0,0) if not set.
+    pub fn get_frame_extents(&self, window: u32) -> Result<(u32, u32, u32, u32)> {
+        let gtk_frame = self
+            .conn
+            .intern_atom(false, b"_GTK_FRAME_EXTENTS")?
+            .reply()?
+            .atom;
+
+        let reply = self
+            .conn
+            .get_property(false, window, gtk_frame, AtomEnum::CARDINAL, 0, 4)?
+            .reply()?;
+
+        let values: Vec<u32> = reply.value32().map(|v| v.collect()).unwrap_or_default();
+
+        if values.len() >= 4 {
+            Ok((values[0], values[1], values[2], values[3]))
+        } else {
+            Ok((0, 0, 0, 0))
+        }
+    }
+
+    /// Move and resize a window to fill the given rectangle exactly.
+    /// Accounts for CSD frame extents (shadows/borders) so the visible
+    /// window content fills the target area precisely.
     pub fn move_resize(&self, window: u32, x: i32, y: i32, width: u32, height: u32) -> Result<()> {
         // Remove maximized state first so the WM allows repositioning
         self.remove_maximized(window)?;
 
+        // Account for CSD frame extents — the window's outer bounds include
+        // invisible shadow/border areas. We need to expand the configure request
+        // so the visible content fills our target rect.
+        let (fl, fr, ft, fb) = self.get_frame_extents(window)?;
+
+        let adj_x = x - fl as i32;
+        let adj_y = y - ft as i32;
+        let adj_w = width + fl + fr;
+        let adj_h = height + ft + fb;
+
         let aux = ConfigureWindowAux::new()
-            .x(x)
-            .y(y)
-            .width(width)
-            .height(height);
+            .x(adj_x)
+            .y(adj_y)
+            .width(adj_w)
+            .height(adj_h);
 
         self.conn.configure_window(window, &aux)?;
         self.conn.flush()?;
