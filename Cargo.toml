@@ -1,0 +1,7 @@
+[package]
+name = "terminalsort"
+version = "0.1.0"
+edition = "2021"
+description = "CLI tool for tiling and resizing terminal windows with font scaling on X11"
+
+[dependencies]
