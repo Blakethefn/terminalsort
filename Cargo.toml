@@ -5,3 +5,9 @@ edition = "2021"
 description = "CLI tool for tiling and resizing terminal windows with font scaling on X11"
 
 [dependencies]
+x11rb = { version = "0.13", features = ["randr"] }
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+anyhow = "1"
