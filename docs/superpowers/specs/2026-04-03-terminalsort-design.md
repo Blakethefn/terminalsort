@@ -61,7 +61,7 @@ For `grid` layout with N windows:
 | `monitor.rs` | Query monitors via X11 RANDR extension. Return list of Monitor structs (index, name, x, y, width, height) |
 | `picker.rs` | Click-to-select flow. Grab X pointer, wait for button press events, resolve clicked window IDs. Supports both N-pick (fixed count) and cancel via Escape |
 | `layout.rs` | Pure geometry. Takes layout name + monitor rect + window count → Vec of (x, y, w, h) rects |
-| `font.rs` | dbus communication with GNOME Terminal via zbus. Read default profile font size, set font size per profile, list profiles |
+| `font.rs` | Font scaling via gsettings CLI. Read/write GNOME Terminal profile font settings, calculate scaled sizes |
 | `state.rs` | Persist and restore original font sizes. Read/write `~/.local/state/terminalsort/state.json` |
 
 ### Data Flow
@@ -104,7 +104,7 @@ struct SavedState {
 
 ### Mechanism
 
-GNOME Terminal stores font settings in dconf/gsettings under `org.gnome.Terminal.ProfilesList` and per-profile schemas. We use zbus to call into dconf or gsettings to read and write the font setting.
+GNOME Terminal stores font settings in dconf/gsettings under `org.gnome.Terminal.ProfilesList` and per-profile schemas. We shell out to the `gsettings` CLI to read and write the font setting (pure D-Bus access to dconf requires GVariant binary serialization, which is impractical).
 
 Specifically:
 - Read the default profile UUID from `org.gnome.Terminal.ProfilesList` → `default` key
@@ -169,7 +169,7 @@ When tiling, windows are moved to absolute coordinates within the selected monit
 | No X11 DISPLAY set | Error: "Cannot connect to X11 display. Is DISPLAY set?" |
 | No terminal windows found | Error: "No GNOME Terminal windows found. Are any open?" |
 | Window count doesn't match layout | Error: "Layout 'h2' requires exactly 2 windows, but N were selected. Try 'grid' for N windows." |
-| dbus connection fails | Warning: "Could not connect to dbus for font scaling. Tiling without font adjustment." Proceed with tile only. |
+| gsettings command fails | Warning: "Could not adjust font size. Tiling without font adjustment." Proceed with tile only. |
 | Invalid monitor index | Error: "Monitor N not found. Available monitors: ..." |
 | State file missing on reset | Warning: "No saved state found. Nothing to reset." |
 
@@ -179,14 +179,13 @@ When tiling, windows are moved to absolute coordinates within the selected monit
 [dependencies]
 x11rb = { version = "0.13", features = ["randr"] }
 clap = { version = "4", features = ["derive"] }
-zbus = { version = "5" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "6"
 anyhow = "1"
 ```
 
-All pure Rust. No C library dependencies.
+Pure Rust for X11 operations. Font scaling shells out to `gsettings` CLI (always present on GNOME desktops).
 
 ## Testing Strategy
 
