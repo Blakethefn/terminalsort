@@ -3,10 +3,11 @@ mod monitor;
 mod picker;
 mod layout;
 mod font;
+mod pts;
 mod state;
 mod types;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -214,29 +215,41 @@ fn cmd_rename(
         wins
     };
 
-    // Set titles
-    for (win, title) in windows.iter().zip(titles.iter()) {
-        x11.set_window_title(win.id, title)?;
+    // Resolve PTS devices via probe (single batch for all windows)
+    let parent_pid = x11.get_window_pid(windows[0].id)?;
+    let window_ids: Vec<u32> = windows.iter().map(|w| w.id).collect();
+    let pts_map = pts::find_pts_batch(&x11, parent_pid, &window_ids)
+        .context("Failed to probe PTS devices")?;
+
+    let mut targets: Vec<(types::TerminalWindow, std::path::PathBuf, String)> = Vec::new();
+    for (win, title) in windows.into_iter().zip(titles.iter()) {
+        let pts_path = pts_map
+            .get(&win.id)
+            .ok_or_else(|| anyhow::anyhow!("No PTS found for window {:#010x}", win.id))?
+            .clone();
         eprintln!(
-            "  Renamed: {} → {}",
-            if win.title.is_empty() {
-                "(untitled)"
-            } else {
-                &win.title
-            },
-            title
+            "  {} → {} ({})",
+            if win.title.is_empty() { "(untitled)" } else { &win.title },
+            title,
+            pts_path.display()
         );
+        targets.push((win, pts_path, title.clone()));
+    }
+
+    // Set titles via OSC escape sequence
+    for (_, pts_path, title) in &targets {
+        pts::set_title(pts_path, title)?;
     }
 
     if pin {
-        eprintln!("Pinning titles (Ctrl+C to stop)...");
+        eprintln!("Pinning {} title(s) (Ctrl+C to stop)...", targets.len());
         let interval = std::time::Duration::from_millis(interval_ms);
         loop {
             std::thread::sleep(interval);
             let mut any_alive = false;
-            for (win, title) in windows.iter().zip(titles.iter()) {
+            for (win, pts_path, title) in &targets {
                 if x11.window_exists(win.id) {
-                    let _ = x11.set_window_title(win.id, title);
+                    let _ = pts::set_title(pts_path, title);
                     any_alive = true;
                 }
             }
@@ -246,7 +259,7 @@ fn cmd_rename(
             }
         }
     } else {
-        eprintln!("Done! {} window(s) renamed.", windows.len());
+        eprintln!("Done! {} window(s) renamed.", targets.len());
     }
 
     Ok(())

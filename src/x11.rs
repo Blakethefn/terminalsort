@@ -6,7 +6,6 @@ use x11rb::protocol::xproto::{
     ConnectionExt as _, EventMask,
 };
 use x11rb::rust_connection::RustConnection;
-use x11rb::wrapper::ConnectionExt as WrapperConnectionExt;
 
 /// Wrapper around the X11 connection and root window.
 pub struct X11 {
@@ -181,29 +180,20 @@ impl X11 {
         Ok(())
     }
 
-    /// Set the window title (_NET_WM_NAME and WM_NAME).
-    pub fn set_window_title(&self, window: u32, title: &str) -> Result<()> {
-        let net_wm_name = self.conn.intern_atom(false, b"_NET_WM_NAME")?.reply()?.atom;
-        let utf8_string = self.conn.intern_atom(false, b"UTF8_STRING")?.reply()?.atom;
+    /// Get _NET_WM_PID from a window.
+    pub fn get_window_pid(&self, window: u32) -> Result<u32> {
+        let net_wm_pid = self.conn.intern_atom(false, b"_NET_WM_PID")?.reply()?.atom;
 
-        self.conn.change_property8(
-            xproto::PropMode::REPLACE,
-            window,
-            net_wm_name,
-            utf8_string,
-            title.as_bytes(),
-        )?;
+        let reply = self
+            .conn
+            .get_property(false, window, net_wm_pid, AtomEnum::CARDINAL, 0, 1)?
+            .reply()?;
 
-        self.conn.change_property8(
-            xproto::PropMode::REPLACE,
-            window,
-            AtomEnum::WM_NAME,
-            AtomEnum::STRING,
-            title.as_bytes(),
-        )?;
-
-        self.conn.flush()?;
-        Ok(())
+        let values: Vec<u32> = reply.value32().map(|v| v.collect()).unwrap_or_default();
+        values
+            .first()
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("No _NET_WM_PID on window {:#010x}", window))
     }
 
     /// Check if a window still exists on the X server.
