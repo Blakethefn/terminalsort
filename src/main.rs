@@ -90,7 +90,7 @@ fn cmd_tile(pick: &str, layout_name: &str, mon_idx: usize) -> Result<()> {
     let windows = if pick == "*" {
         let terminals = x11.list_terminal_windows()?;
         if terminals.is_empty() {
-            bail!("No GNOME Terminal windows found. Are any open?");
+            bail!("No terminal windows found. Are any open?");
         }
         eprintln!("Found {} terminal window(s)", terminals.len());
         terminals
@@ -280,7 +280,7 @@ fn cmd_list() -> Result<()> {
 
     // List terminal windows
     let terminals = x11.list_terminal_windows()?;
-    println!("\nGNOME Terminal windows:");
+    println!("\nTerminal windows:");
     if terminals.is_empty() {
         println!("  (none found)");
     } else {

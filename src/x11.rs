@@ -7,6 +7,15 @@ use x11rb::protocol::xproto::{
 };
 use x11rb::rust_connection::RustConnection;
 
+/// Known terminal emulator WM_CLASS values.
+const TERMINAL_CLASSES: &[&str] = &["gnome-terminal", "kitty"];
+
+/// Check if a WM_CLASS string belongs to a supported terminal emulator.
+pub fn is_terminal_class(class: &str) -> bool {
+    let lower = class.to_lowercase();
+    TERMINAL_CLASSES.iter().any(|t| lower.contains(t))
+}
+
 /// Wrapper around the X11 connection and root window.
 pub struct X11 {
     pub conn: RustConnection,
@@ -22,7 +31,7 @@ impl X11 {
         Ok(Self { conn, root })
     }
 
-    /// List all GNOME Terminal windows.
+    /// List all terminal windows (GNOME Terminal, Kitty, etc.).
     pub fn list_terminal_windows(&self) -> Result<Vec<TerminalWindow>> {
         let net_client_list = self
             .conn
@@ -40,7 +49,7 @@ impl X11 {
         let mut terminals = Vec::new();
         for wid in all_windows {
             if let Ok((_, class)) = self.get_wm_class(wid) {
-                if class.to_lowercase().contains("gnome-terminal") {
+                if is_terminal_class(&class) {
                     let title = self.get_window_title(wid).unwrap_or_default();
                     terminals.push(TerminalWindow { id: wid, title });
                 }

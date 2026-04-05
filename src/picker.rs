@@ -1,5 +1,5 @@
 use crate::types::TerminalWindow;
-use crate::x11::X11;
+use crate::x11::{self, X11};
 use anyhow::{bail, Result};
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
@@ -81,9 +81,9 @@ fn pick_loop(x11: &X11, count: usize, selected: &mut Vec<TerminalWindow>) -> Res
                     false, client, AtomEnum::WM_CLASS, AtomEnum::STRING, 0, u32::MAX,
                 )?.reply()?;
 
-                let class_str = String::from_utf8_lossy(&reply.value).to_lowercase();
-                if !class_str.contains("gnome-terminal") {
-                    eprintln!("  Not a GNOME Terminal window, try again");
+                let class_str = String::from_utf8_lossy(&reply.value);
+                if !x11::is_terminal_class(&class_str) {
+                    eprintln!("  Not a terminal window, try again");
                     continue;
                 }
 
