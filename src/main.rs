@@ -36,7 +36,7 @@ enum Commands {
     List,
     /// Restore original font sizes
     Reset,
-    /// Set window titles (with optional pinning to prevent overwriting)
+    /// Set window titles (pins by default so they stay set)
     Rename {
         /// Number of windows to click-select (use --id instead to skip clicking)
         #[arg(long, conflicts_with = "id", required_unless_present = "id")]
@@ -50,9 +50,9 @@ enum Commands {
         #[arg(long, required = true)]
         title: Vec<String>,
 
-        /// Keep re-applying titles so other programs can't overwrite them
+        /// Set title once without pinning (title may be overwritten by other programs)
         #[arg(long)]
-        pin: bool,
+        no_pin: bool,
 
         /// Pin re-apply interval in milliseconds (default: 500)
         #[arg(long, default_value = "500")]
@@ -73,8 +73,8 @@ fn main() -> Result<()> {
         Commands::Reset => {
             cmd_reset()?;
         }
-        Commands::Rename { pick, id, title, pin, interval } => {
-            cmd_rename(pick, &id, &title, pin, interval)?;
+        Commands::Rename { pick, id, title, no_pin, interval } => {
+            cmd_rename(pick, &id, &title, !no_pin, interval)?;
         }
     }
 
