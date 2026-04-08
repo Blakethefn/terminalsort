@@ -116,6 +116,12 @@ fn cmd_tile(pick: &str, layout_name: &str, mon_idx: usize) -> Result<()> {
     let eff_w = (eff_right - eff_x).max(0) as u32;
     let eff_h = (eff_bottom - eff_y).max(0) as u32;
 
+    // Query WM frame extents (title bar, borders) from the first window
+    let frame = x11.get_net_frame_extents(windows[0].id)?;
+    if frame.top > 0 || frame.bottom > 0 {
+        eprintln!("WM frame: top={}px bottom={}px", frame.top, frame.bottom);
+    }
+
     // Calculate layout using effective (panel-adjusted) geometry
     let rects = layout::calculate_layout(
         layout_name,
@@ -124,6 +130,7 @@ fn cmd_tile(pick: &str, layout_name: &str, mon_idx: usize) -> Result<()> {
         eff_w,
         eff_h,
         windows.len(),
+        &frame,
     )?;
 
     // Scale fonts

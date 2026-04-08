@@ -1,4 +1,4 @@
-use crate::types::Rect;
+use crate::types::{FrameExtents, Rect};
 
 #[derive(Debug)]
 pub enum LayoutError {
@@ -33,6 +33,7 @@ impl std::error::Error for LayoutError {}
 /// `mon_x`, `mon_y` are the monitor's top-left offset in screen coordinates.
 /// `mon_w`, `mon_h` are the monitor's dimensions.
 /// `count` is the number of windows to tile.
+/// `frame` provides WM decoration sizes so cell heights/widths account for title bars.
 pub fn calculate_layout(
     layout: &str,
     mon_x: i32,
@@ -40,13 +41,14 @@ pub fn calculate_layout(
     mon_w: u32,
     mon_h: u32,
     count: usize,
+    frame: &FrameExtents,
 ) -> Result<Vec<Rect>, LayoutError> {
     match layout {
-        "h2" => fixed_horizontal(mon_x, mon_y, mon_w, mon_h, count, 2),
-        "v2" => fixed_vertical(mon_x, mon_y, mon_w, mon_h, count, 2),
-        "h3" => fixed_horizontal(mon_x, mon_y, mon_w, mon_h, count, 3),
-        "v3" => fixed_vertical(mon_x, mon_y, mon_w, mon_h, count, 3),
-        "grid" => grid(mon_x, mon_y, mon_w, mon_h, count),
+        "h2" => fixed_horizontal(mon_x, mon_y, mon_w, mon_h, count, 2, frame),
+        "v2" => fixed_vertical(mon_x, mon_y, mon_w, mon_h, count, 2, frame),
+        "h3" => fixed_horizontal(mon_x, mon_y, mon_w, mon_h, count, 3, frame),
+        "v3" => fixed_vertical(mon_x, mon_y, mon_w, mon_h, count, 3, frame),
+        "grid" => grid(mon_x, mon_y, mon_w, mon_h, count, frame),
         other => Err(LayoutError::UnknownLayout(other.to_string())),
     }
 }
@@ -58,6 +60,7 @@ fn fixed_horizontal(
     mon_h: u32,
     count: usize,
     expected: usize,
+    frame: &FrameExtents,
 ) -> Result<Vec<Rect>, LayoutError> {
     if count != expected {
         return Err(LayoutError::WindowCountMismatch {
@@ -66,13 +69,15 @@ fn fixed_horizontal(
             got: count,
         });
     }
+    // Single row: subtract frame top/bottom once from height
+    let cell_h = mon_h.saturating_sub(frame.top + frame.bottom);
     let cell_w = mon_w / expected as u32;
     let rects = (0..expected)
         .map(|i| Rect {
             x: mon_x + (i as u32 * cell_w) as i32,
-            y: mon_y,
+            y: mon_y + frame.top as i32,
             width: cell_w,
-            height: mon_h,
+            height: cell_h,
         })
         .collect();
     Ok(rects)
@@ -85,6 +90,7 @@ fn fixed_vertical(
     mon_h: u32,
     count: usize,
     expected: usize,
+    frame: &FrameExtents,
 ) -> Result<Vec<Rect>, LayoutError> {
     if count != expected {
         return Err(LayoutError::WindowCountMismatch {
@@ -93,11 +99,15 @@ fn fixed_vertical(
             got: count,
         });
     }
-    let cell_h = mon_h / expected as u32;
+    // Each row has frame_top + cell_h + frame_bottom visual height
+    // rows * (frame_top + cell_h + frame_bottom) = mon_h
+    let frame_v = frame.top + frame.bottom;
+    let cell_h = mon_h.saturating_sub(expected as u32 * frame_v) / expected as u32;
+    let stride = cell_h + frame_v;
     let rects = (0..expected)
         .map(|i| Rect {
             x: mon_x,
-            y: mon_y + (i as u32 * cell_h) as i32,
+            y: mon_y + frame.top as i32 + (i as u32 * stride) as i32,
             width: mon_w,
             height: cell_h,
         })
@@ -111,6 +121,7 @@ fn grid(
     mon_w: u32,
     mon_h: u32,
     count: usize,
+    frame: &FrameExtents,
 ) -> Result<Vec<Rect>, LayoutError> {
     if count < 2 {
         return Err(LayoutError::WindowCountMismatch {
@@ -125,8 +136,12 @@ fn grid(
     let rows = (count as f64).sqrt().floor().max(1.0) as usize;
     let cols = count.div_ceil(rows);
 
+    // Account for WM decorations: each row costs frame_top + frame_bottom extra
+    let frame_v = frame.top + frame.bottom;
+    let cell_h = mon_h.saturating_sub(rows as u32 * frame_v) / rows as u32;
+    let row_stride = cell_h + frame_v;
+
     let cell_w = mon_w / cols as u32;
-    let cell_h = mon_h / rows as u32;
 
     let mut rects = Vec::with_capacity(count);
     for i in 0..count {
@@ -155,7 +170,7 @@ fn grid(
 
         rects.push(Rect {
             x: this_x,
-            y: mon_y + (row as u32 * cell_h) as i32,
+            y: mon_y + frame.top as i32 + (row as u32 * row_stride) as i32,
             width: this_cell_w,
             height: cell_h,
         });

@@ -24,3 +24,12 @@ pub struct TerminalWindow {
     pub id: u32,
     pub title: String,
 }
+
+/// Window manager frame extents (title bar, borders).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FrameExtents {
+    pub left: u32,
+    pub right: u32,
+    pub top: u32,
+    pub bottom: u32,
+}

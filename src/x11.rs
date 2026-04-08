@@ -1,4 +1,4 @@
-use crate::types::{Rect, TerminalWindow};
+use crate::types::{FrameExtents, Rect, TerminalWindow};
 use anyhow::{Context, Result};
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
@@ -157,6 +157,34 @@ impl X11 {
             Ok((values[0], values[1], values[2], values[3]))
         } else {
             Ok((0, 0, 0, 0))
+        }
+    }
+
+    /// Get _NET_FRAME_EXTENTS (WM-provided decorations like title bar).
+    /// Returns FrameExtents with (left, right, top, bottom) or zeros if not set.
+    pub fn get_net_frame_extents(&self, window: u32) -> Result<FrameExtents> {
+        let atom = self
+            .conn
+            .intern_atom(false, b"_NET_FRAME_EXTENTS")?
+            .reply()?
+            .atom;
+
+        let reply = self
+            .conn
+            .get_property(false, window, atom, AtomEnum::CARDINAL, 0, 4)?
+            .reply()?;
+
+        let values: Vec<u32> = reply.value32().map(|v| v.collect()).unwrap_or_default();
+
+        if values.len() >= 4 {
+            Ok(FrameExtents {
+                left: values[0],
+                right: values[1],
+                top: values[2],
+                bottom: values[3],
+            })
+        } else {
+            Ok(FrameExtents::default())
         }
     }
 

@@ -7,14 +7,37 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
 
-/// Resolve PTS devices for multiple windows in a single probe pass.
-pub fn find_pts_batch(x11: &X11, parent_pid: u32, window_ids: &[u32]) -> Result<HashMap<u32, PathBuf>> {
-    let children = child_pts_devices(parent_pid)?;
-    if children.is_empty() {
-        bail!("No child PTS devices found for PID {parent_pid}");
+/// Resolve PTS devices for multiple windows.
+///
+/// Strategy 1 (per-window): Get each window's PID and find its child with a PTS.
+/// This works for kitty where each OS window is a separate process.
+///
+/// Strategy 2 (probe): Falls back to title-probing when per-window mapping fails.
+/// This works for GNOME Terminal where all windows share one process.
+pub fn find_pts_batch(x11: &X11, _parent_pid: u32, window_ids: &[u32]) -> Result<HashMap<u32, PathBuf>> {
+    // Strategy 1: per-window direct mapping (works for kitty, one process per window)
+    let mut result = HashMap::new();
+    for &wid in window_ids {
+        if let Ok(win_pid) = x11.get_window_pid(wid) {
+            let children = child_pts_devices(win_pid)?;
+            if let Some((_, pts)) = children.first() {
+                result.insert(wid, pts.clone());
+            }
+        }
     }
 
-    // Write unique probe titles
+    if result.len() == window_ids.len() {
+        return Ok(result);
+    }
+
+    // Strategy 2: probe-based mapping (works for GNOME Terminal, shared process)
+    result.clear();
+    let first_pid = x11.get_window_pid(window_ids[0])?;
+    let children = child_pts_devices(first_pid)?;
+    if children.is_empty() {
+        bail!("No child PTS devices found for PID {first_pid}");
+    }
+
     let probe_prefix = "__TERMINALSORT_PROBE_";
     for (pid, pts) in &children {
         let probe = format!("{probe_prefix}{pid}");
@@ -23,8 +46,6 @@ pub fn find_pts_batch(x11: &X11, parent_pid: u32, window_ids: &[u32]) -> Result<
 
     thread::sleep(Duration::from_millis(100));
 
-    // Read back all window titles and build the mapping
-    let mut result = HashMap::new();
     for &wid in window_ids {
         let title = x11.get_window_title(wid).unwrap_or_default();
         if let Some(pid_str) = title.strip_prefix(probe_prefix) {
