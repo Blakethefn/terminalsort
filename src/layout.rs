@@ -132,9 +132,18 @@ fn grid(
     }
 
     // Prefer fewer rows (wider cells are better for terminals).
-    // For 4: 2x2, for 6: 2x3, for 8: 2x4, for 9: 3x3, for 10: 2x5
-    let rows = (count as f64).sqrt().floor().max(1.0) as usize;
-    let cols = count.div_ceil(rows);
+    // Perfect squares use square grid (4→2x2, 9→3x3, 16→4x4).
+    // Otherwise minimize rows, capping at 6 columns (6→2x3, 8→2x4, 10→2x5).
+    let sq_root = (count as f64).sqrt().round() as usize;
+    let (rows, cols) = if sq_root * sq_root == count {
+        (sq_root, sq_root)
+    } else {
+        let mut r = 2;
+        while count.div_ceil(r) > 6 && r < count {
+            r += 1;
+        }
+        (r, count.div_ceil(r))
+    };
 
     // Account for WM decorations: each row costs frame_top + frame_bottom extra
     let frame_v = frame.top + frame.bottom;
