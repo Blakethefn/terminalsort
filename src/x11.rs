@@ -195,6 +195,10 @@ impl X11 {
         // Remove maximized state first so the WM allows repositioning
         self.remove_maximized(window)?;
 
+        // Strip resize-increment / min / max / base-size constraints so VTE
+        // doesn't round our pixel-exact target down to a character-cell multiple.
+        let _ = self.relax_size_hints(window);
+
         // Account for CSD frame extents — the window's outer bounds include
         // invisible shadow/border areas. We need to expand the configure request
         // so the visible content fills our target rect.
@@ -212,6 +216,50 @@ impl X11 {
             .height(adj_h);
 
         self.conn.configure_window(window, &aux)?;
+        self.conn.flush()?;
+
+        Ok(())
+    }
+
+    /// Clear PMinSize | PMaxSize | PResizeInc | PBaseSize from WM_NORMAL_HINTS
+    /// so the WM/toolkit does not snap our configure request to a character grid.
+    fn relax_size_hints(&self, window: u32) -> Result<()> {
+        // ICCCM WM_SIZE_HINTS: 18 CARD32 fields, type=WM_SIZE_HINTS atom.
+        let wm_normal_hints = AtomEnum::WM_NORMAL_HINTS;
+        let wm_size_hints_type = self
+            .conn
+            .intern_atom(false, b"WM_SIZE_HINTS")?
+            .reply()?
+            .atom;
+
+        let reply = self
+            .conn
+            .get_property(false, window, wm_normal_hints, wm_size_hints_type, 0, 18)?
+            .reply()?;
+
+        let mut values: Vec<u32> = reply.value32().map(|v| v.collect()).unwrap_or_default();
+        if values.len() < 18 {
+            return Ok(());
+        }
+
+        // Bits to drop: PMinSize=16, PMaxSize=32, PResizeInc=64, PBaseSize=256.
+        const FLAGS_TO_CLEAR: u32 = 16 | 32 | 64 | 256;
+        values[0] &= !FLAGS_TO_CLEAR;
+
+        let bytes: Vec<u8> = values
+            .iter()
+            .flat_map(|v| v.to_ne_bytes().into_iter())
+            .collect();
+
+        self.conn.change_property(
+            xproto::PropMode::REPLACE,
+            window,
+            wm_normal_hints,
+            wm_size_hints_type,
+            32,
+            values.len() as u32,
+            &bytes,
+        )?;
         self.conn.flush()?;
 
         Ok(())
