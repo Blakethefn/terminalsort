@@ -32,6 +32,10 @@ enum Commands {
         /// Monitor index (0-based)
         #[arg(long)]
         monitor: usize,
+
+        /// Multiplier applied on top of the auto-scaled font size (e.g. 1.5 = 50% bigger)
+        #[arg(long, default_value = "1.0")]
+        font_scale: f64,
     },
     /// List terminal windows and monitors
     List,
@@ -65,8 +69,8 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Tile { pick, layout, monitor: mon_idx } => {
-            cmd_tile(&pick, &layout, mon_idx)?;
+        Commands::Tile { pick, layout, monitor: mon_idx, font_scale } => {
+            cmd_tile(&pick, &layout, mon_idx, font_scale)?;
         }
         Commands::List => {
             cmd_list()?;
@@ -82,7 +86,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn cmd_tile(pick: &str, layout_name: &str, mon_idx: usize) -> Result<()> {
+fn cmd_tile(pick: &str, layout_name: &str, mon_idx: usize, font_scale: f64) -> Result<()> {
     let x11 = x11::X11::connect()?;
     let mon = monitor::get_monitor(&x11, mon_idx)?;
 
@@ -134,12 +138,18 @@ fn cmd_tile(pick: &str, layout_name: &str, mon_idx: usize) -> Result<()> {
     )?;
 
     // Scale fonts
-    let font_result = scale_fonts(windows.len());
+    let font_result = scale_fonts(windows.len(), font_scale);
     if let Err(e) = &font_result {
         eprintln!("Warning: Could not adjust font size: {e}. Tiling without font adjustment.");
     }
 
-    // Move/resize windows
+    // Move/resize windows. Apply twice — VTE may re-assert size hints between
+    // our font change and the configure, snapping the window down. Second pass
+    // wins because hints have been relaxed by then.
+    for (win, rect) in windows.iter().zip(rects.iter()) {
+        x11.move_resize(win.id, rect.x, rect.y, rect.width, rect.height)?;
+    }
+    std::thread::sleep(std::time::Duration::from_millis(80));
     for (win, rect) in windows.iter().zip(rects.iter()) {
         x11.move_resize(win.id, rect.x, rect.y, rect.width, rect.height)?;
         eprintln!(
@@ -156,7 +166,7 @@ fn cmd_tile(pick: &str, layout_name: &str, mon_idx: usize) -> Result<()> {
     Ok(())
 }
 
-fn scale_fonts(window_count: usize) -> Result<()> {
+fn scale_fonts(window_count: usize, multiplier: f64) -> Result<()> {
     let state_path = state::default_state_path()?;
 
     let uuid = font::get_default_profile()?;
@@ -172,7 +182,15 @@ fn scale_fonts(window_count: usize) -> Result<()> {
         state::save_state(&state_path, &saved)?;
     }
 
-    let new_size = font::scaled_font_size(base_size, window_count);
+    // Use saved-original as the base when we've already scaled, so --font-scale
+    // composes against the user's true font, not a previously scaled one.
+    let true_base = saved
+        .profiles
+        .get(&uuid)
+        .and_then(|f| font::parse_font_size(f))
+        .unwrap_or(base_size);
+
+    let new_size = (font::scaled_font_size(true_base, window_count) * multiplier).round().max(6.0);
     let new_font = font::with_font_size(&current_font, new_size);
 
     if new_font != current_font {
